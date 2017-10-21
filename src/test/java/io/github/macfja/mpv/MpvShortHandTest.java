@@ -20,7 +20,7 @@ public class MpvShortHandTest {
         System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "debug");
         System.setProperty("org.slf4j.simpleLogger.showShortLogName", "true");
 
-        mpvService = new Shorthand((new Service("/Users/dev/Applications/mpv.app/Contents/MacOS/mpv")));
+        mpvService = new Shorthand((new Service("mpv")));
     }
 
     @AfterClass

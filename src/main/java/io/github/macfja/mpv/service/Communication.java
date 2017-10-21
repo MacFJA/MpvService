@@ -95,7 +95,9 @@ public class Communication implements Closeable {
     @Override
     public void close() throws IOException {
         try {
-            ioSocket.exitValue();
+            if (ioSocket != null) {
+                ioSocket.exitValue();
+            }
         } catch (Exception e) {
             if (exitOnClose) {
                 write("exit", null);

@@ -258,10 +258,14 @@ public class Service implements MpvService {
         ioCommunication.close();
 
         try {
-            mpvProcess.exitValue();
+            if (mpvProcess != null) {
+                mpvProcess.exitValue();
+            }
         } catch (Exception e) {
             mpvProcess.destroy();
+        } finally {
             Files.deleteIfExists(Paths.get(socketPath));
+
         }
     }
 

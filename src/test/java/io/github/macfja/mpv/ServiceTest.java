@@ -13,7 +13,7 @@ public class ServiceTest {
 
     @BeforeClass
     static public void init() {
-        mpvService = (new Service("/Users/dev/Applications/mpv.app/Contents/MacOS/mpv"));
+        mpvService = new Service();
     }
     @AfterClass
     static public void finish() {

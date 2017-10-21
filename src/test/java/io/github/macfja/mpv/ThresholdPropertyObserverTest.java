@@ -16,7 +16,7 @@ public class ThresholdPropertyObserverTest {
     static public void init() {
         System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "debug");
         System.setProperty("org.slf4j.simpleLogger.showShortLogName", "true");
-        mpvService = (new Service("/Users/dev/Applications/mpv.app/Contents/MacOS/mpv"));
+        mpvService = (new Service("mpv"));
     }
     @AfterClass
     static public void finish() {
