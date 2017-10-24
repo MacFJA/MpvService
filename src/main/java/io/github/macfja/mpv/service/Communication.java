@@ -9,11 +9,10 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Scanner;
+import java.util.*;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Communication class.
@@ -54,6 +53,8 @@ public class Communication implements Closeable {
      * The class logger
      */
     protected Logger logger = LoggerFactory.getLogger(getClass());
+
+    private ScheduledExecutorService queueProcessor = new ScheduledThreadPoolExecutor(1);
 
     /**
      * Change the behavior when the <code>close</code> method is call.
@@ -146,26 +147,31 @@ public class Communication implements Closeable {
                 Scanner sc = new Scanner(ioSocket.getInputStream());
 
                 while (sc.hasNextLine()) {
-                    String line = sc.nextLine();
-                    logger.debug("Receiving data: " + line);
-                    if (line == null || !line.startsWith("{")) {
-                        logger.debug(" - No a valid JSON");
-                        continue;
-                    }
-                    JSONObject object = JSONObject.parseObject(line);
-                    if (object.containsKey("request_id") && responseHandler.canHandle(object.getIntValue("request_id"))) {
-                        logger.debug(" - Contains a valid request_id");
-                        responseHandler.handle(object);
-                        continue;
-                    }
+                    final String line = sc.nextLine();
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            logger.debug("Receiving data: " + line);
+                            if (line == null || !line.startsWith("{")) {
+                                logger.debug(" - No a valid JSON");
+                                return;
+                            }
+                            JSONObject object = JSONObject.parseObject(line);
+                            if (object.containsKey("request_id") && responseHandler.canHandle(object.getIntValue("request_id"))) {
+                                logger.debug(" - Contains a valid request_id");
+                                responseHandler.handle(object);
+                                return;
+                            }
 
-                    if (!object.containsKey("event")) {
-                        logger.debug(" - Not an event");
-                        continue;
-                    }
-                    String eventName = object.getString("event");
-                    logger.debug(" - It's the event: " + eventName);
-                    eventHandler.handle(eventName, object);
+                            if (!object.containsKey("event")) {
+                                logger.debug(" - Not an event");
+                                return;
+                            }
+                            String eventName = object.getString("event");
+                            logger.debug(" - It's the event: " + eventName);
+                            eventHandler.handle(eventName, object);
+                        }
+                    }).start();
                 }
 
                 logger.info("The listener ended.");
