@@ -1,4 +1,4 @@
-package io.github.macfja.mpv;
+package io.github.macfja.mpv.communication.handling;
 
 import com.alibaba.fastjson.JSONObject;
 
@@ -44,15 +44,28 @@ abstract public class ThresholdPropertyObserver extends PropertyObserver {
     }
 
     @Override
-    public void trigger(String eventName, JSONObject json) {
-        if (!isValid(json)) {
-            return;
-        }
+    public boolean canHandle(JSONObject message) {
+        boolean eventMatching = super.canHandle(message);
 
-        Date now = new Date();
-        if (lastExecutionTime == null || now.getTime() - lastExecutionTime > seconds * 1000) {
-            lastExecutionTime = now.getTime();
-            super.trigger(eventName, json);
+        return eventMatching && inSchedule();
+    }
+
+    /**
+     * Indicate if the minimum time between two notification is respected.
+     *
+     * @return <p>{@code true} if the previous valid notification occurs at least {@code seconds} ago,
+     *         or if the observer was never call</p>
+     */
+    private boolean inSchedule() {
+        return lastExecutionTime == null
+                || (new Date()).getTime() - lastExecutionTime > seconds * 1000;
+    }
+
+    @Override
+    public void handle(JSONObject message) {
+        if (inSchedule()) {
+            lastExecutionTime = (new Date()).getTime();
+            super.handle(message);
         }
     }
 }

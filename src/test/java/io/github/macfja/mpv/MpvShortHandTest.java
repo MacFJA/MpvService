@@ -1,6 +1,7 @@
 package io.github.macfja.mpv;
 
 import com.alibaba.fastjson.JSONObject;
+import io.github.macfja.mpv.communication.handling.NamedEventHandler;
 import io.github.macfja.mpv.wrapper.Shorthand;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -36,10 +37,11 @@ public class MpvShortHandTest {
     @Test
     public void testMultiple() throws IOException {
         final StringBuilder sb = new StringBuilder();
-        mpvService.registerEvent("start-file", new Observer() {
+        mpvService.registerEvent(new NamedEventHandler("start-file") {
             @Override
-            public void trigger(String eventName, JSONObject json) {
+            public Runnable doHandle(JSONObject message) {
                 sb.append(1);
+                return null;
             }
         });
         mpvService.setProperty("volume", "13");
@@ -100,7 +102,6 @@ public class MpvShortHandTest {
     @Test
     public void testSeeks() {
         silentLoadFile();
-        //double total = 14.367344 + 0.966531;
         double total = 15.333875;
         try {
             mpvService.seek(1, Shorthand.Seek.Absolute);
