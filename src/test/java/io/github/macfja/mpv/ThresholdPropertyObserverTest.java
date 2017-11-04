@@ -1,7 +1,7 @@
 package io.github.macfja.mpv;
 
 import com.alibaba.fastjson.JSONObject;
-import io.github.macfja.mpv.service.Utils;
+import io.github.macfja.mpv.communication.handling.ThresholdPropertyObserver;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -31,13 +31,13 @@ public class ThresholdPropertyObserverTest {
     @Test
     public void testCustomEvent()
     {
-        JSONObject event = Utils.buildPropertyChangeEvent("x-fake-prop", "ok", 1);
+        JSONObject event = ThresholdPropertyObserver.buildPropertyChangeEvent("x-fake-prop", "ok", 1);
 
-        JSONObject event2 =  Utils.buildPropertyChangeEvent("x-fake-prop", "ok", 2);
+        JSONObject event2 =  ThresholdPropertyObserver.buildPropertyChangeEvent("x-fake-prop", "ok", 2);
 
         final StringBuilder called = new StringBuilder();
         try {
-            mpvService.registerPropertyChange(new ThresholdPropertyObserver(1.5f, "x-fake-prop") {
+            mpvService.registerPropertyChange(new io.github.macfja.mpv.communication.handling.ThresholdPropertyObserver(1.5f, "x-fake-prop", 1) {
                 @Override
                 public void changed(String propertyName, Object value, Integer id) {
                     Assert.assertEquals("x-fake-prop", propertyName);
@@ -46,7 +46,7 @@ public class ThresholdPropertyObserverTest {
                 }
             });
 
-            mpvService.registerPropertyChange(new ThresholdPropertyObserver(1.5f, "x-fake-prop", 2) {
+            mpvService.registerPropertyChange(new io.github.macfja.mpv.communication.handling.ThresholdPropertyObserver(1.5f, "x-fake-prop", 2) {
                 @Override
                 public void changed(String propertyName, Object value, Integer id) {
                     Assert.assertEquals("x-fake-prop", propertyName);
@@ -63,20 +63,22 @@ public class ThresholdPropertyObserverTest {
             mpvService.fireEvent(event);
             mpvService.fireEvent(event);
             mpvService.fireEvent(event);
-            Thread.sleep(500);
+            Thread.sleep(600);
             mpvService.fireEvent(event);
             mpvService.fireEvent(event2);
             mpvService.fireEvent(event);
             mpvService.fireEvent(event);
-            Thread.sleep(500);
+            Thread.sleep(600);
             mpvService.fireEvent(event);
             mpvService.fireEvent(event2);
             mpvService.fireEvent(event);
             mpvService.fireEvent(event);
+            Thread.sleep(600);
+            mpvService.fireEvent(event);
+            mpvService.fireEvent(event);
+            mpvService.fireEvent(event);
+
             Thread.sleep(500);
-            mpvService.fireEvent(event);
-            mpvService.fireEvent(event);
-            mpvService.fireEvent(event);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }

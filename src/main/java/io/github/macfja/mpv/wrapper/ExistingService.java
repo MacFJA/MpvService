@@ -25,7 +25,11 @@ public class ExistingService extends Service {
 
     @Override
     protected void initialize() {
-        // no-op
+        try {
+            ioCommunication.open();
+        } catch (IOException e) {
+            logger.error("Unable to start communication", e);
+        }
     }
 
     @Override

@@ -1,7 +1,12 @@
 package io.github.macfja.mpv;
 
 import com.alibaba.fastjson.JSONObject;
-import io.github.macfja.mpv.service.Communication;
+import io.github.macfja.mpv.communication.Communication;
+import io.github.macfja.mpv.communication.handling.AbstractEventHandler;
+import io.github.macfja.mpv.communication.handling.AbstractMessageHandler;
+import io.github.macfja.mpv.communication.handling.MessageHandlerInterface;
+import io.github.macfja.mpv.communication.handling.NamedEventHandler;
+import io.github.macfja.mpv.communication.handling.PropertyObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,7 +22,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Created by dev on 29/03/2017.
+ * The default/base implementation of MpvService.
+ *
+ * @author MacFJA
  */
 public class Service implements MpvService {
     /**
@@ -37,10 +44,6 @@ public class Service implements MpvService {
      */
     private String mpvPath;
     /**
-     * The list of observer
-     */
-    private Map<String, List<Observer>> observersList = new HashMap<>();
-    /**
      * The process that contains the MPV instance
      */
     private Process mpvProcess;
@@ -48,10 +51,6 @@ public class Service implements MpvService {
      * The instance that will communicate with MPV
      */
     protected Communication ioCommunication = new Communication();
-    /**
-     * The handler for events
-     */
-    private Communication.EventHandler eventHandler;
     /**
      * The name of the event that we will wait
      *
@@ -82,52 +81,43 @@ public class Service implements MpvService {
 
         socketPath = System.getProperty("java.io.tmpdir") + this.getClass().getName();
         ioCommunication.setSocketPath(socketPath);
-        ioCommunication.setEventHandler(eventHandler = new Communication.EventHandler() {
+        ioCommunication.addMessageHandler(new AbstractEventHandler() {
             @Override
-            public void handle(String eventName, JSONObject eventJson) {
-                logger.debug("Start handling: " + eventName);
+            public boolean canHandle(String eventName) {
+                return eventName.equals(waitedEvent);
+            }
 
-                if (eventName.equals(waitedEvent)) {
-                    logger.debug(" - The event was waited");
-                    synchronized (waitedEvent) {
-                        waitedEvent.notify();
+            @Override
+            public Runnable doHandle(JSONObject message) {
+                final String eventName = message.getString("event");
+
+                if (!eventName.equals(waitedEvent)) {
+                    return null;
+                }
+
+                return new Runnable() {
+                    @Override
+                    public void run() {
+                        logger.debug(" - The event was waited");
+                        synchronized (waitedEvent) {
+                            waitedEvent.notify();
+                        }
                     }
-                }
-
-                if (!observersList.containsKey(eventName)) {
-                    logger.debug(" - No observer for this event");
-                    return;
-                }
-                List<Observer> observers = observersList.get(eventName);
-                logger.debug(" - Found " + observers.size() + " observer(s)");
-
-                for (Observer observer : observers) {
-                    observer.trigger(eventName, eventJson);
-                }
+                };
             }
         });
-        ioCommunication.setResponseHandler(new Communication.ResponseHandler() {
-            @Override
-            public boolean canHandle(int requestId) {
-                return waitFor.getRequestId() == requestId;
-            }
-
-            @Override
-            public void handle(JSONObject response) {
-                logger.debug("Handling command response with data: " + response.toString());
-                waitFor.trigger("", response);
-            }
-        });
+        ioCommunication.addMessageHandler(waitFor);
         initialize();
     }
 
     @Override
     public String sendCommand(String command, List<? extends Serializable> arguments) throws IOException {
-        waitFor.setRequestId(ioCommunication.write(command, arguments));
+        int requestId;
+        waitFor.addRequest(requestId = ioCommunication.write(command, arguments));
 
         synchronized (waitFor) {
             int tries = 0;
-            while (!waitFor.hasResult()) {
+            while (!waitFor.hasResult(requestId)) {
                 try {
                     waitFor.wait(500);
                     tries++;
@@ -144,9 +134,7 @@ public class Service implements MpvService {
                 }
             }
         }
-        String result = waitFor.getResult();
-        waitFor.setRequestId(-1);
-        return result;
+        return waitFor.getResult(requestId);
     }
 
 
@@ -182,6 +170,7 @@ public class Service implements MpvService {
         try {
             mpvProcess = pb.start();
             Thread.sleep(500);
+            ioCommunication.open();
             isInitialized = true;
         } catch (IOException | InterruptedException e) {
             logger.error("Unable to start Mpv", e);
@@ -205,23 +194,65 @@ public class Service implements MpvService {
     }
 
     @Override
-    public void registerEvent(String eventName, Observer observer) {
-        List<Observer> observers;
-        if (observersList.containsKey(eventName)) {
-            observers = observersList.get(eventName);
-        } else {
-            observers = new ArrayList<>();
-        }
-        observers.add(observer);
-        observersList.put(eventName, observers);
+    public <T> T getProperty(String name, Class<T> type) throws IOException {
+        String result = getProperty(name);
+        return JSONObject.parseObject(result).getObject("data", type);
+    }
+
+    @Override
+    public void registerEvent(NamedEventHandler observer) {
+        ioCommunication.addMessageHandler(observer);
     }
 
     @Override
     public void registerPropertyChange(PropertyObserver observer) throws IOException {
-        registerEvent("property-change", observer);
-        sendNonBlockingCommand("observe_property", Arrays.asList(observer.getId(), observer.getPropertyName()));
+        if (!hasPropertyObserver(observer.getPropertyName(), observer.getId())) {
+            sendCommand("observe_property", Arrays.asList(observer.getId(), observer.getPropertyName()));
+        }
+        ioCommunication.addMessageHandler(observer);
     }
 
+    @Override
+    public void unregisterPropertyChange(PropertyObserver observer) throws IOException {
+        ioCommunication.removeMessageHandler(observer);
+        if (!hasPropertyObserver(observer.getPropertyName(), observer.getId())) {
+            sendNonBlockingCommand("unobserve_property", Collections.singletonList(observer.getId()));
+        }
+    }
+
+    @Override
+    public void unregisterPropertyChange(String propertyName) throws IOException {
+        List<PropertyObserver> toRemove = new ArrayList<>();
+        for (MessageHandlerInterface messageHandler : ioCommunication.getMessageHandlers()) {
+            if (messageHandler instanceof PropertyObserver
+                    && ((PropertyObserver) messageHandler).getPropertyName().equals(propertyName)) {
+                toRemove.add((PropertyObserver) messageHandler);
+            }
+        }
+        for (PropertyObserver item : toRemove) {
+            ioCommunication.removeMessageHandler(item);
+        }
+    }
+
+    /**
+     * Check if a property have at least one observer
+     *
+     * @param propertyName The name of the property to check
+     * @param groupId      The id of the group to be associated with
+     * @return {@code true} if an observer exist
+     */
+    private boolean hasPropertyObserver(String propertyName, int groupId) {
+        for (MessageHandlerInterface handler : ioCommunication.getMessageHandlers()) {
+            if (
+                    handler instanceof PropertyObserver
+                            && ((PropertyObserver) handler).getPropertyName().equals(propertyName)
+                            && ((PropertyObserver) handler).getId().equals(groupId)
+                    ) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     @Override
     public void fireEvent(String eventName) {
@@ -240,7 +271,7 @@ public class Service implements MpvService {
 
     @Override
     public void fireEvent(JSONObject event) {
-        eventHandler.handle(event.getString("event"), event);
+        ioCommunication.simulateMessage(event);
     }
 
 
@@ -265,66 +296,73 @@ public class Service implements MpvService {
             mpvProcess.destroy();
         } finally {
             Files.deleteIfExists(Paths.get(socketPath));
-
         }
     }
 
     /**
      * Internal observer to get the response of a command
      */
-    private class SynchronousSend implements Observer {
+    private class SynchronousSend extends AbstractMessageHandler {
         /**
-         * The request id.
-         * The response must have the same id.
+         * List of all request/response waited and received (but not yet retrieved)
          */
-        private int requestId = -1;
-        /**
-         * The response
-         */
-        private String result;
+        private Map<Integer, String> data = new HashMap<>();
 
         /**
-         * Get the request id
+         * Add a new waited response
          *
-         * @return The id
+         * @param requestId The associated request id
          */
-        int getRequestId() {
-            return requestId;
+        void addRequest(int requestId) {
+            data.put(requestId, null);
         }
 
         /**
-         * Set the request id that we will wait
+         * Check if a request id is waited or not
          *
-         * @param requestId The id
+         * @param requestId The request id to check
+         * @return {@code true} if a response with this request id is waited
          */
-        void setRequestId(int requestId) {
-            this.requestId = requestId;
-            this.result = null;
+        boolean hasRequest(int requestId) {
+            return data.containsKey(requestId);
         }
 
         /**
          * Get the command response
          *
-         * @return The response
+         * @param requestId The id of the request to look for
+         * @return The response. Return {@code null} if no response or the request id is not found
          */
-        String getResult() {
-            return result;
+        String getResult(int requestId) {
+            if (!data.containsKey(requestId)) {
+                return null;
+            }
+            return data.remove(requestId);
         }
 
         /**
          * Indicate if we receive the response
          *
-         * @return <code>true</code> if we have the result
+         * @param requestId The id of the request to look for
+         * @return {@code true} if we have the result
          */
-        boolean hasResult() {
-            return result != null;
+        boolean hasResult(int requestId) {
+            return data.containsKey(requestId) && data.get(requestId) != null;
         }
 
         @Override
-        public synchronized void trigger(String eventName, JSONObject json) {
-            result = json.toJSONString();
-            notify();
+        public boolean canHandle(JSONObject message) {
+            return message.containsKey("request_id") && hasRequest(message.getIntValue("request_id"));
+        }
+
+        @Override
+        synchronized public Runnable doHandle(final JSONObject message) {
+            int requestId = message.getIntValue("request_id");
+            if (hasRequest(requestId)) {
+                data.put(requestId, message.toJSONString());
+                notify();
+            }
+            return null;
         }
     }
 }
-

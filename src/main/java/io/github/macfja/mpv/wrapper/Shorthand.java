@@ -3,8 +3,7 @@ package io.github.macfja.mpv.wrapper;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import io.github.macfja.mpv.MpvService;
-import io.github.macfja.mpv.Observer;
-import io.github.macfja.mpv.PropertyObserver;
+import io.github.macfja.mpv.communication.handling.NamedEventHandler;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -48,7 +47,7 @@ public class Shorthand implements MpvService {
     }
 
     /**
-     * Change the position of the playback relatively from current possition
+     * Change the position of the playback relatively from current position
      *
      * @param second The amount of seconds
      * @throws IOException If an error occurs when sending the command
@@ -88,7 +87,7 @@ public class Shorthand implements MpvService {
      * Add a new media
      *
      * @param path          The path where the media is
-     * @param addToPlaylist <p>If <code>false</code>, the media will replace the current media,
+     * @param addToPlaylist <p>If {@code false}, the media will replace the current media,
      *                      otherwise it will be added to the end of the playlist</p>
      * @throws IOException If an error occurs when sending the command
      */
@@ -159,19 +158,30 @@ public class Shorthand implements MpvService {
         return service.getProperty(name);
     }
 
+    @Override
     public <T> T getProperty(String name, Class<T> type) throws IOException {
         String result = getProperty(name);
         return JSONObject.parseObject(result).getObject("data", type);
     }
 
     @Override
-    public void registerEvent(String eventName, Observer observer) {
-        service.registerEvent(eventName, observer);
+    public void registerEvent(NamedEventHandler observer) {
+        service.registerEvent(observer);
     }
 
     @Override
-    public void registerPropertyChange(PropertyObserver observer) throws IOException {
+    public void registerPropertyChange(io.github.macfja.mpv.communication.handling.PropertyObserver observer) throws IOException {
         service.registerPropertyChange(observer);
+    }
+
+    @Override
+    public void unregisterPropertyChange(io.github.macfja.mpv.communication.handling.PropertyObserver observer) throws IOException {
+        service.unregisterPropertyChange(observer);
+    }
+
+    @Override
+    public void unregisterPropertyChange(String propertyName) throws IOException {
+        service.unregisterPropertyChange(propertyName);
     }
 
     @Override
@@ -205,7 +215,10 @@ public class Shorthand implements MpvService {
     }
 
     /**
-     * The list of key used in the <code>seek</code> method result
+     * The list of key used in the {@code seek} method result
+     *
+     * @see Shorthand#seek(Integer)
+     * @see Shorthand#seek(Integer, Seek)
      */
     public enum TimeKey {
         Remaining,
@@ -214,6 +227,8 @@ public class Shorthand implements MpvService {
 
     /**
      * List of available seek type
+     *
+     * @see Shorthand#seek(Integer, Seek)
      */
     public enum Seek {
         Relative("relative"),
@@ -223,6 +238,9 @@ public class Shorthand implements MpvService {
         Exact("exact"),
         Keyframes("keyframes");
 
+        /**
+         * The value to used in the command
+         */
         private String type;
 
         Seek(String type) {
